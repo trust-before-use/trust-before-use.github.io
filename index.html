@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trust Before Use: When Do World-Model Quality Metrics Predict Control?</title>
+  <meta name="description" content="Prediction loss and video fidelity can mislead about a world model's usefulness for control; the signal-to-noise ratio of gradients through the model is a cheap training-time check.">
+  <meta name="referrer" content="no-referrer">
+  <link rel="stylesheet" href="static/css/style.css">
+  <script defer src="static/js/main.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="topbar-title" href="#top">Trust Before Use</a>
+    <div class="topbar-actions">
+      <span class="btn" aria-disabled="true">Paper (coming soon)</span>
+      <span class="btn" aria-disabled="true">Code (coming soon)</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout" id="top">
+  <nav class="toc" aria-label="On this page">
+    <p class="toc-label">On this page</p>
+    <ul>
+      <li><a href="#tldr">TL;DR</a></li>
+      <li><a href="#abstract">Abstract</a></li>
+      <li><a href="#results">Results</a>
+        <ul>
+          <li><a href="#baselines">Prediction loss &amp; LPIPS</a></li>
+          <li><a href="#extraction-archs">Methods &amp; architectures</a></li>
+          <li><a href="#large-models">Large world models</a></li>
+          <li><a href="#fastwam">World-action model</a></li>
+          <li><a href="#toy">Toy example</a></li>
+        </ul>
+      </li>
+      <li><a href="#videos">Rollouts</a></li>
+      <li><a href="#bibtex">BibTeX</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <h1>Trust Before Use: When Do World-Model Quality Metrics Predict Control?</h1>
+      <p class="authors">Anonymous Authors</p>
+      <p class="venue">Under review at ICLR 2027</p>
+      <div class="hero-actions">
+        <span class="btn" aria-disabled="true">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1h5.5L13 4.5V15H4V1zm5 1v3h3L9 2zM6 8h5v1H6V8zm0 2h5v1H6v-1zm0 2h3v1H6v-1z"/></svg>
+          Paper (coming soon)
+        </span>
+        <span class="btn" aria-disabled="true">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.7 4.3 2 8l3.7 3.7.7-.7L3.4 8l3-3-.7-.7zm4.6 0-.7.7 3 3-3 3 .7.7L14 8l-3.7-3.7z"/></svg>
+          Code (coming soon)
+        </span>
+      </div>
+    </header>
+
+    <figure class="teaser">
+      <img src="static/images/teaser.png" width="2880" height="1320"
+           alt="Overview figure: model loss vs. ESNR as predictors of policy performance, and the cost of assessing a checkpoint.">
+    </figure>
+
+    <section id="tldr">
+      <h2>TL;DR</h2>
+      <p class="tldr">Prediction loss and video fidelity can mislead about a world model's usefulness for control; the signal-to-noise ratio of gradients through the model is a cheap training-time check.</p>
+    </section>
+
+    <section id="abstract" class="abstract">
+      <h2>Abstract</h2>
+      <p>World models are being scaled to billions of parameters and fine-tuned on robot data in the hope of unlocking new skills, yet it remains unclear which properties of a world model make it useful for downstream control. Practitioners typically judge world models by prediction loss or video fidelity, and learn whether a model is useful only after training and evaluating a policy, a slow and costly loop. We ask when world-model quality metrics predict control. We find that prediction loss and video fidelity can mislead: a world model with lower prediction loss can yield a worse policy, and a world-action model with far worse video fidelity can control without a detectable loss in success. We study the expected signal-to-noise ratio (ESNR) of policy gradients computed through a world model, which measures the gradient signal the model offers to policy extraction and can be computed during training without a trained policy or environment interaction. Across policy-extraction methods and world-model architectures on DMControl and Meta-World, ESNR tracks downstream performance more closely than prediction loss, and it tracks the planning performance of large pretrained world models at a fraction of the evaluation cost. On a 6B-parameter world-action model trained by behavior cloning, a gradient signal-to-noise ratio of the action loss orders the four model variants exactly as closed-loop success does, whereas LPIPS and SSIM rank the most successful variant last.</p>
+    </section>
+
+    <section id="results">
+      <h2>Results</h2>
+
+      <!-- (a) Baselines -->
+      <h3 id="baselines">Prediction loss and LPIPS can mislead</h3>
+      <div class="fig-grid side">
+        <div class="fig-grid two">
+          <figure><img src="static/images/esnr_vs_pred_loss.png" width="747" height="1136" alt="Bar chart: ESNR vs. prediction loss for TD-MPC Basic and TD-MPC2"></figure>
+          <figure><img src="static/images/esnr_vs_lpips.png" width="743" height="1136" alt="Bar chart: ESNR vs. LPIPS for DINO-WM and VJEPA2"></figure>
+        </div>
+        <div class="table-wrap">
+          <p class="table-caption">Spearman correlation with downstream performance</p>
+          <table>
+            <thead><tr><th>Setting</th><th>Metric</th><th class="num">Corr. w/ perf.</th></tr></thead>
+            <tbody>
+              <tr><td rowspan="2">RL</td><td>ESNR</td><td class="num">+0.57</td></tr>
+              <tr><td>Pred. loss</td><td class="num">&minus;0.52</td></tr>
+              <tr><td rowspan="2">Planning</td><td>ESNR</td><td class="num">+1.00</td></tr>
+              <tr><td>LPIPS</td><td class="num">&minus;0.33</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="caption">TD-MPC2 <em>basic</em> reaches a lower prediction loss than the more strongly regularized TD-MPC2, yet yields worse downstream performance on all Meta-World tasks; ESNR ranks the two world models in line with their policy performance. For the larger DINO-WM and VJEPA2 world models on 3 tabletop manipulation tasks, LPIPS does not reliably separate the models, whereas ESNR identifies the one that produces the best policy. <em>RL</em>: policy-learning tasks; <em>Planning</em>: planning with a frozen world model.</p>
+
+      <!-- (b) Policy extraction and architectures -->
+      <h3 id="extraction-archs">ESNR across policy-extraction methods and world-model architectures</h3>
+      <div class="fig-grid two stack-mobile">
+        <div class="panel-group">
+          <p class="panel-title">Across policy-extraction methods</p>
+          <div class="fig-grid two">
+            <figure><img src="static/images/esnr_vs_perf_scatter_log_barline_cropped.png" width="720" height="913" alt="Normalized performance and ESNR for FoG, ZoG and MPC"></figure>
+            <figure><img src="static/images/esnr_vs_perf_scatter_log_cropped.png" width="905" height="905" alt="Scatter: performance vs. log10 ESNR per task for cem, zog, fog"></figure>
+          </div>
+          <img class="legend" src="static/images/pi_legend.png" width="660" height="72" alt="Legend: FoG, ZoG, MPC">
+        </div>
+        <div class="panel-group">
+          <p class="panel-title">Across world-model architectures</p>
+          <div class="fig-grid two">
+            <figure><img src="static/images/esnr_vs_perf_across_archs_barline_cropped.png" width="725" height="913" alt="Normalized performance and ESNR for DreamerV3, TD-MPC2 Basic, TD-MPC2"></figure>
+            <figure><img src="static/images/esnr_vs_perf_across_archs_cropped.png" width="905" height="895" alt="Scatter: performance vs. ESNR per task for dreamerv3, tdmpc2, tdmpc2_basic"></figure>
+          </div>
+          <img class="legend" src="static/images/wm_legend.png" width="853" height="72" alt="Legend: DreamerV3, TD-MPC2 Basic, TD-MPC2">
+        </div>
+      </div>
+      <div class="table-wrap" style="max-width: 420px; margin: 22px auto 0;">
+        <table>
+          <thead><tr><th>Experiment</th><th class="num">Spearman</th></tr></thead>
+          <tbody>
+            <tr><td>&harr; &pi;-extraction methods</td><td class="num">0.79</td></tr>
+            <tr><td>&harr; WM architectures</td><td class="num">0.80</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">On 12 DMControl and Meta-World tasks, with a fixed TD-MPC2 world model, ESNR tracks the returns of MPC with CEM, first-order (FoG) and zeroth-order (ZoG) policy gradients; CEM attains both the highest ESNR and the best performance. Across architectures, DreamerV3 underperforms on most tasks and shows the lowest ESNR, while TD-MPC2 achieves higher returns and higher ESNR than the less regularized TD-MPC2 <em>basic</em>. ESNR error bars are 95% bootstrap CIs; bar-chart performance is normalized and averaged over all tasks.</p>
+
+      <!-- (c) Large pretrained world models -->
+      <h3 id="large-models">Large pretrained world models</h3>
+      <div class="fig-grid side">
+        <figure><img src="static/images/bars_perf_1_over_cd.png" width="973" height="774" alt="Bar chart: planning performance 1/CD and SNR for resnet, r3m, vjepa2, dino"></figure>
+        <div class="table-wrap">
+          <p class="table-caption">Wall time to evaluate ESNR vs. full evaluation</p>
+          <table>
+            <thead><tr><th>Method</th><th class="num">ESNR time (hrs)</th><th class="num">Eval time (hrs)</th></tr></thead>
+            <tbody>
+              <tr><td>ResNet</td><td class="num">0.003</td><td class="num">0.70</td></tr>
+              <tr><td>R3M</td><td class="num">0.003</td><td class="num">2.21</td></tr>
+              <tr><td>DinoWM</td><td class="num">0.027</td><td class="num">0.72</td></tr>
+              <tr><td>V-JEPA2</td><td class="num">0.358</td><td class="num">4.58</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="caption">Four pretrained world models (ResNet, R3M, DINO-WM, VJEPA2) are fine-tuned offline and used for MPC with CEM on the SoftGym rope-manipulation task (50 environment steps, 10 seeds). Performance is 1/CD, where CD is the Chamfer distance to the goal (lower CD is better). Planning performance and ESNR are highly correlated, and ESNR takes a fraction of the time that a full evaluation does.</p>
+
+      <!-- (d) Fast-WAM -->
+      <h3 id="fastwam">A 6B-parameter world-action model (Fast-WAM)</h3>
+      <figure class="fig">
+        <img src="static/images/fastwam_F4_final.png" width="1407" height="500" alt="Four panels: closed-loop success vs. gradient SNR, validation action RMSE, PSNR and LPIPS for Fast-WAM variants a, b, c, f">
+      </figure>
+      <p class="caption">Fast-WAM (6.0B parameters) is fine-tuned on 5,500 demonstration episodes from 10 RoboTwin 2.0 tasks. The four variants differ only in the video training objective: a uses the default timestep shift S = 5, b uses S = 1, c uses S = 10, and f keeps S = 5 but trains on Gaussian-blurred future frames. Success is measured over 2,000 episodes per model at the final checkpoint (step 2,780), with 95% bootstrap CIs; &rho; is the sign-adjusted Spearman correlation with success. The action-loss gradient SNR is the only metric that orders all four models as control does (&rho; = +1.0); validation action RMSE and PSNR reach +0.2, and LPIPS &minus;0.4.</p>
+      <blockquote class="quote">&ldquo;In video fidelity the variants rank c &gt; a &gt; b &gt; f on LPIPS and SSIM, whereas their success rates rank f &gt; a &gt; c &gt; b: the variant with the best-looking predictions is third in success, and the one with the worst is first.&rdquo;</blockquote>
+
+      <!-- (e) Toy example -->
+      <h3 id="toy">Toy example: a ball and a wall</h3>
+      <div class="fig-grid toy">
+        <figure><img src="static/images/ball_wall_setup_cropped.png" width="713" height="690" alt="Toy setup: a ball shot at angle theta toward a wall"></figure>
+        <figure><img src="static/images/snr_landscape_n64_cropped.png" width="1243" height="440" alt="Problem landscape J(theta), ESNR of ZoG, MPPI and FoG, and optimization curves"></figure>
+      </div>
+      <p class="caption">A ball is shot at angle &theta; to maximize distance traveled, and a wall introduces a discontinuity in the objective. ESNR over &theta; &isin; [&minus;0.2, 1.2] ranks the gradient estimators (ZoG, MPPI, FoG) and predicts optimization speed: estimators with higher ESNR ascend faster.</p>
+    </section>
+
+    <section id="videos">
+      <h2>Rollouts</h2>
+      <p>Planning rollouts on the SoftGym rope-manipulation task, in which a 7-DoF arm must move a deformable rope into a goal configuration, using MPC with CEM through fine-tuned large pretrained world models.</p>
+      <div class="video-grid">
+        <div class="video-card">
+          <video autoplay muted loop playsinline preload="metadata" src="static/videos/rope_cem_resnet.mp4"></video>
+          <p class="label">Rope manipulation</p>
+          <p class="sublabel">CEM planning with the ResNet world model</p>
+        </div>
+        <div class="video-card">
+          <video autoplay muted loop playsinline preload="metadata" src="static/videos/rope_cem_r3m.mp4"></video>
+          <p class="label">Rope manipulation</p>
+          <p class="sublabel">CEM planning with the R3M world model</p>
+        </div>
+        <div class="video-card">
+          <video autoplay muted loop playsinline preload="metadata" src="static/videos/rope_goal.mp4"></video>
+          <p class="label">Rope manipulation</p>
+          <p class="sublabel">Goal configuration</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="bibtex">
+      <h2>BibTeX</h2>
+      <div class="bib">
+        <button class="copy-btn" id="copy-bib" type="button">Copy</button>
+<pre><code id="bibtex-text">@inproceedings{anonymous2027trust,
+  title={Trust Before Use: When Do World-Model Quality Metrics Predict Control?},
+  author={Anonymous},
+  booktitle={Submitted to ICLR 2027},
+  year={2027}
+}</code></pre>
+      </div>
+    </section>
+  </main>
+</div>
+
+</body>
+</html>
